@@ -26,6 +26,9 @@ PASSWORD = ""
 CONNECTION_STATE = "" # up OR down
 CONNECTION_TYPE = "" # ADSL 
 CONNECTION_BANDWIDTH = "" # "<up>/<down>" 
+ATT_DOWN = "xx.x"
+ATT_UP = "xx.x"
+SW_VERSION = ""
 
 #
 # process_arg
@@ -43,13 +46,16 @@ def process_arg():
 # sends login and password to telnet connection 
 #
 def login(tn):
-  tn.read_until("Username : ")
+  tn.read_until("Username : ",5)
   tn.write(USER + "\r")
-  tn.read_until("Password : ")
+  tn.read_until("Password : ",5)
   tn.write(PASSWORD + "\r")
 
   # Wait for the prompt
-  tn.read_until("=>")
+  try:
+    tn.read_until("=>")
+  except:
+    print "Could not connect to modem ("+USER+")"
 
 #
 # close_connection
@@ -61,16 +67,26 @@ def close_connection(tn):
   tn.write("exit\r")
   tn.read_all()
 
+def version(tn):
+   # Get xdsl info 
+  tn.write("software version\r")
+  # Wait for the prompt
+  ret=tn.read_until("=>")
+
+  for line in ret.splitlines():
+    if "Active" in line:
+      global SW_VERSION
+      SW_VERSION=line.split()[3]
+      print SW_VERSION
 
 #
-# xdsl_info
+# check_DSL
 #
-# gets and processes xdsl_info 
+# return TRUE if connected 
 #
-def xdsl_info(tn):
+def check_DSL(tn):
   # Get xdsl info 
-  tn.write("xdsl info\r")
-
+  tn.write("xdsl info \r")
   # Wait for the prompt
   ret=tn.read_until("=>")
 
@@ -85,17 +101,29 @@ def xdsl_info(tn):
       global CONNECTION_BANDWIDTH
       CONNECTION_BANDWIDTH=line.split()[4]
 
-#
-# status
-#
-# print final status
-#
-def status():
+  # Get more infos if connected
   if CONNECTION_STATE == "up":
-    print "[" + CONNECTION_TYPE + "] " + CONNECTION_BANDWIDTH
-  else:
-    print CONNECTION_STATE
+    # Get xdsl info 
+    tn.write("xdsl info expand=enabled\r")
+    # Wait for the prompt
+    ret=tn.read_until("=>")
+    for line in ret.splitlines():
+      if "Attenuation" in line:
+	global ATT_DOWN
+        ATT_DOWN=line.split()[2]
+	global ATT_UP
+        ATT_UP=line.split()[3]
 
+    return True
+  else:
+    return False
+
+def set_led(tn,color):
+  # Get xdsl info 
+  tn.write("system config led "+color+"\r")
+  # Wait for the prompt
+  ret=tn.read_until("=>")
+	
 #
 # main
 #
@@ -104,13 +132,28 @@ def status():
 def main():
 
   #process_arg()
+  try:
+    tn = telnetlib.Telnet(HOST)
+  except:
+    print "Cannot connect to modem ("+HOST+")"
+    return
 
-  tn = telnetlib.Telnet(HOST)
+  try:
+    login(tn)
+  except:
+    print "Cannot login to modem ("+USER+")"
+    return
 
-  login(tn)
-  xdsl_info(tn)
- 
-  status()
+  version(tn)
+
+  if check_DSL(tn):
+	  set_led(tn,"green")
+	  print "[" + CONNECTION_TYPE + "] " + CONNECTION_BANDWIDTH
+	  print "dB : " + ATT_DOWN + "/" + ATT_UP
+  else:
+	  set_led(tn,"red")
+	  print CONNECTION_STATE
+
 
   close_connection(tn)
 
