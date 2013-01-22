@@ -28,7 +28,13 @@ CONNECTION_TYPE = "" # ADSL
 CONNECTION_BANDWIDTH = "" # "<up>/<down>" 
 ATT_DOWN = "xx.x"
 ATT_UP = "xx.x"
+RATE_DOWN = "x"
+RATE_UP = "x"
 SW_VERSION = ""
+
+def my_read_until(tn,str_until,timeout=5):
+  ret=tn.read_until(str_until.encode(),timeout)
+  return ret
 
 #
 # process_arg
@@ -37,8 +43,7 @@ SW_VERSION = ""
 #
 def process_arg():
   for arg in sys.argv:
-    print arg
-
+    print(arg)
 
 #
 # login
@@ -46,38 +51,49 @@ def process_arg():
 # sends login and password to telnet connection 
 #
 def login(tn):
-  tn.read_until("Username : ",5)
-  tn.write(USER + "\r")
-  tn.read_until("Password : ",5)
-  tn.write(PASSWORD + "\r")
-
+  my_read_until(tn,"Username : ",5)
+  tn.write((USER + "\r").encode())
+  my_read_until(tn,"Password : ",5)
+  tn.write((PASSWORD + "\r").encode())
   # Wait for the prompt
   try:
-    tn.read_until("=>")
+    my_read_until(tn,"=>")
   except:
-    print "Could not connect to modem ("+USER+")"
+    print("Could not connect to modem ("+USER+")")
 
 #
 # close_connection
 #
 # closes conection 
 #
+def config_dump(tn):
+  tn.write(b"config dump user.ini\r")
+  ret=my_read_until(tn,"=>")
+
+  f = open('pyThom.ini', 'w')
+
+  for l in ret.splitlines():
+    line=str(l,encoding="utf8")
+    if "=>" not in line and "config dump" not in line:
+      f.write(line+"\n")
+  f.close()
+
 def close_connection(tn):
   # Quitting
-  tn.write("exit\r")
+  tn.write(b"exit\r")
   tn.read_all()
 
 def version(tn):
    # Get xdsl info 
-  tn.write("software version\r")
+  tn.write(b"software version\r")
   # Wait for the prompt
-  ret=tn.read_until("=>")
+  ret=my_read_until(tn,"=>")
 
-  for line in ret.splitlines():
+  for l in ret.splitlines():
+    line=str(l,encoding='utf8')
     if "Active" in line:
-      global SW_VERSION
       SW_VERSION=line.split()[3]
-      print SW_VERSION
+      print(SW_VERSION)
 
 #
 # check_DSL
@@ -85,34 +101,37 @@ def version(tn):
 # return TRUE if connected 
 #
 def check_DSL(tn):
-  # Get xdsl info 
-  tn.write("xdsl info \r")
-  # Wait for the prompt
-  ret=tn.read_until("=>")
 
-  for line in ret.splitlines():
+  global CONNECTION_STATE, CONNECTION_TYPE, CONNECTION_BANDWITH, ATT_DOWN, ATT_UP, RATE_DOWN, RATE_UP
+
+  # Get xdsl info 
+  tn.write(b"xdsl info \r")
+  # Wait for the prompt
+  ret=my_read_until(tn,"=>")
+
+  for l in ret.splitlines():
+    line=str(l,encoding='utf8')
     if "Modem state" in line:
-      global CONNECTION_STATE
       CONNECTION_STATE=line.split()[2]
     if "xDSL Type" in line:
-      global CONNECTION_TYPE
       CONNECTION_TYPE=line.split()[2]
     if "Bandwidth" in line:
-      global CONNECTION_BANDWIDTH
       CONNECTION_BANDWIDTH=line.split()[4]
 
   # Get more infos if connected
   if CONNECTION_STATE == "up":
     # Get xdsl info 
-    tn.write("xdsl info expand=enabled\r")
+    tn.write(b"xdsl info expand=enabled\r")
     # Wait for the prompt
-    ret=tn.read_until("=>")
-    for line in ret.splitlines():
+    ret=my_read_until(tn,"=>")
+    for l in ret.splitlines():
+      line=str(l,encoding='utf8')
       if "Attenuation" in line:
-	global ATT_DOWN
         ATT_DOWN=line.split()[2]
-	global ATT_UP
         ATT_UP=line.split()[3]
+      if "Payload rate" in line:
+        RATE_DOWN=line.split()[3]
+        RATE_UP=line.split()[4]
 
     return True
   else:
@@ -120,9 +139,9 @@ def check_DSL(tn):
 
 def set_led(tn,color):
   # Get xdsl info 
-  tn.write("system config led "+color+"\r")
+  tn.write(b"system config led "+color.encode()+b"\r")
   # Wait for the prompt
-  ret=tn.read_until("=>")
+  ret=my_read_until(tn,"=>")
 	
 #
 # main
@@ -133,26 +152,28 @@ def main():
 
   #process_arg()
   try:
-    tn = telnetlib.Telnet(HOST)
+    tn = telnetlib.Telnet(HOST,23,5)
   except:
-    print "Cannot connect to modem ("+HOST+")"
+    print("Cannot connect to modem ("+HOST+")")
     return
 
   try:
     login(tn)
   except:
-    print "Cannot login to modem ("+USER+")"
+    print("Cannot login to modem ("+USER+")")
     return
 
   version(tn)
+  config_dump(tn)
 
   if check_DSL(tn):
 	  set_led(tn,"green")
-	  print "[" + CONNECTION_TYPE + "] " + CONNECTION_BANDWIDTH
-	  print "dB : " + ATT_DOWN + "/" + ATT_UP
+	  print("[" + CONNECTION_TYPE + "] " + CONNECTION_BANDWIDTH)
+	  print("dB : " + ATT_DOWN + "/" + ATT_UP)
+	  print("kbps : " + RATE_DOWN + "/" + RATE_UP)
   else:
 	  set_led(tn,"red")
-	  print CONNECTION_STATE
+	  print(CONNECTION_STATE)
 
 
   close_connection(tn)
